@@ -39,3 +39,11 @@
   un niveau, l'échelle de rejet session-sticky de Hermes laisse tomber le champ ;
   re-vérifier les ensembles avec un seul appel d'acceptation par forme avant
   toute mise à jour.
+- Panorama non-GLM vérifié live (2026-10-03, sondage 400 zéro-génération) :
+  Codestral/Ministral/Large/Voxtral → « reasoning_effort is not enabled » (ne
+  jamais leur envoyer le champ) ; Mistral-medium (toutes variantes), Magistral,
+  Small et `mistral-vibe-cli-*` → vocabulaire `none/high` uniquement. Ne pas
+  activer ces familles par défaut : le clamp Hermes never-escalate ne peut pas
+  exprimer `medium` sur `none/high` (l'unique niveau non-nul serait une
+  escalade). Une activation future ne peut venir que d'un effort configuré
+  `high` ou `none` explicitement.
