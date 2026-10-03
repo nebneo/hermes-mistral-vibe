@@ -1,6 +1,8 @@
 """Unofficial community provider for direct Mistral Vibe access."""
 from providers.base import ProviderProfile
 
+from agent import reasoning_effort as re_
+
 MODEL = 'mistral-vibe-cli-latest'
 BASE = 'https://api.mistral.ai/v1'
 SLUG = 'mistral-vibe'
@@ -9,6 +11,37 @@ UA = 'hermes-mistral-vibe/1.0'
 CONSOLE = 'https://console.mistral.ai'
 _CATALOG_TTL = 3600
 _catalog_cache = {}
+
+# Reasoning vocabularies live-verified on the relay (2026-10-03): the top-level
+# ``reasoning_effort`` field is validated per model — HTTP 400 code 3051 lists
+# the supported set. GLM-5.3/5/latest accept low/high/max ('medium' 400s);
+# GLM-5.2 additionally accepts 'medium'. 'none' cannot disable thinking on this
+# wire, and the native z.ai scale differs (there GLM-5.3 takes 'medium'), so the
+# plugin declares its own relay-verified sets instead of reusing core constants.
+_VIBE_GLM_EFFORTS = ('low', 'high', 'max')
+_VIBE_GLM_52_EFFORTS = ('low', 'medium', 'high', 'max')
+_GLM_5_3_TOKENS = ('glm-5.3', 'glm-5-3', 'glm-5p3')
+_GLM_5_2_TOKENS = ('glm-5.2', 'glm-5-2', 'glm-5p2')
+_GLM_XHIGH_TO_MAX = {'xhigh': 'max'}  # vendor top-tier mapping, mirrors GLM53_OVERRIDES
+
+
+def _glm_effort_set(model):
+    """Relay-verified ``reasoning_effort`` vocabulary for *model*, or None.
+
+    Fail-closed: any model whose GLM version was not verified on the relay
+    returns None and keeps the relay's own default effort.
+    """
+    name = (model or '').strip().lower()
+    if any(token in name for token in _GLM_5_3_TOKENS):
+        return _VIBE_GLM_EFFORTS
+    if any(token in name for token in _GLM_5_2_TOKENS):
+        return _VIBE_GLM_52_EFFORTS
+    if 'glm-5' in name or 'glm-latest' in name:
+        # Verified on zai-glm-5 and zai-glm-latest; -900k style suffixes ride along.
+        # Future 5.x point releases land here too — if the relay ever 400s the
+        # level, Hermes' session-sticky rejection ladder drops the field.
+        return _VIBE_GLM_EFFORTS
+    return None
 
 
 def _key_fingerprint(key):
@@ -219,6 +252,25 @@ class GuardedClient:
 
 
 class VibeProfile(ProviderProfile):
+    def build_api_kwargs_extras(self, *, reasoning_config=None, model=None, **context):
+        """Translate Hermes reasoning config to the relay's top-level ``reasoning_effort``.
+
+        The wire field is top-level only: the guarded client rejects ``extra_body``.
+        'none'/disabled emits nothing (the relay cannot disable thinking), and an
+        unverified model keeps the relay's own default effort (fail-closed).
+        """
+        extra_body, top_level = {}, {}
+        efforts = _glm_effort_set(model)
+        if efforts is None:
+            return extra_body, top_level
+        effort = re_.requested_effort(reasoning_config)
+        if effort in (None, 'none'):
+            return extra_body, top_level
+        clamped = re_.clamp_effort(effort, efforts, _GLM_XHIGH_TO_MAX)
+        if clamped in efforts:
+            top_level['reasoning_effort'] = clamped
+        return extra_body, top_level
+
     def fetch_models(self, **kwargs):
         import httpx
         requested_base = str(kwargs.get('base_url') or BASE).rstrip('/')

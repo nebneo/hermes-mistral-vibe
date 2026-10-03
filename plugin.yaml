@@ -1,4 +1,4 @@
 name: mistral-vibe
 kind: model-provider
-version: 1.0.0
+version: 1.1.0
 description: Unofficial community plugin for direct Mistral Vibe access; subscription coverage is not guaranteed

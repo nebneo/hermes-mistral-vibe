@@ -63,6 +63,13 @@ Les sections suivantes détaillent chaque étape et les options.
 - découverte en lecture seule via `https://api.mistral.ai/v1/models` ;
 - filtrage strict sur `capabilities.completion_chat: true` ;
 - modèle de secours `mistral-vibe-cli-latest` ;
+- **effort de raisonnement (reasoning effort)** : le champ `reasoning_effort`
+  top-level du relay est émis pour les modèles GLM vérifiés
+  (`zai-glm-5-3`/`zai-glm-5`/`zai-glm-latest` : `low`/`high`/`max` ;
+  `zai-glm-5-2` : `low`/`medium`/`high`/`max`, live 2026-10-03). L'effort
+  configuré dans Hermes (`agent.reasoning_effort`, ex. `medium`) est ramené au
+  niveau supporté le plus proche sans jamais escalader ; tout autre modèle
+  garde l'effort par défaut du relay (fail-closed) ;
 - aucune utilisation de `MISTRAL_API_KEY` et aucune substitution interne de
   modèle.
 

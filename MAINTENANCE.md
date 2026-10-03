@@ -29,3 +29,13 @@
   et reconstruire son client OpenAI si l’empreinte de clé change. Le modèle de
   secours reste autorisé quand le catalogue est indisponible ; aucun autre modèle
   ne doit passer en mode dégradé.
+- Vocabulaires `reasoning_effort` du relay vérifiés live (2026-10-03) : le champ
+  est top-level uniquement (le client gardé rejette `extra_body`), validé par
+  modèle par le relay (400 code 3051 liste les niveaux acceptés). 5-3/5/latest :
+  low/high/max ; 5-2 : low/medium/high/max. `none` est refusé (le thinking ne
+  peut pas être coupé sur ce wire) — un disable émet donc zéro champ. Les ensembles
+  du relay diffèrent du z.ai natif (GLM-5.3 natif accepte `medium`) : ne pas
+  importer les constantes `GLM*_EFFORTS` du core pour ce wire. Si le relay refuse
+  un niveau, l'échelle de rejet session-sticky de Hermes laisse tomber le champ ;
+  re-vérifier les ensembles avec un seul appel d'acceptation par forme avant
+  toute mise à jour.
