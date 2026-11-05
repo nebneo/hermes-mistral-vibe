@@ -11,6 +11,7 @@ UA = 'hermes-mistral-vibe/1.0'
 CONSOLE = 'https://console.mistral.ai'
 _CATALOG_TTL = 3600
 _catalog_cache = {}
+_context_cache = {}
 
 # Reasoning vocabularies live-verified on the relay (2026-10-03): the top-level
 # ``reasoning_effort`` field is validated per model — HTTP 400 code 3051 lists
@@ -76,9 +77,43 @@ def _cached_catalog(key):
     return None
 
 
-def _store_catalog(key, models):
+def _store_catalog(key, models, contexts=None):
     import time
-    _catalog_cache[_catalog_scope(key)] = (time.monotonic(), tuple(models))
+    scope, now = _catalog_scope(key), time.monotonic()
+    _catalog_cache[scope] = (now, tuple(models))
+    _context_cache[scope] = (now, dict(contexts or {}))
+
+
+def _cached_contexts(key):
+    import time
+    row = _context_cache.get(_catalog_scope(key))
+    if row and time.monotonic() - row[0] < _CATALOG_TTL:
+        return dict(row[1])
+    return None
+
+
+def _context_windows(rows):
+    """``{model or alias: max_context_length}`` from validated chat-model rows.
+
+    A real model id always wins over an alias. An alias claimed by several rows
+    with different windows is dropped (fail-closed: Hermes then keeps its own
+    resolution instead of guessing). Non-positive and non-integer values are
+    ignored for that model only; they never invalidate the catalog.
+    """
+    windows, aliases, ambiguous = {}, {}, set()
+    for model_id, value, names in rows:
+        if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+            continue
+        windows[model_id] = value
+        for name in names if isinstance(names, list) else ():
+            if not isinstance(name, str) or not name.strip() or name != name.strip():
+                continue
+            if aliases.setdefault(name, value) != value:
+                ambiguous.add(name)
+    for name, value in aliases.items():
+        if name not in ambiguous:
+            windows.setdefault(name, value)
+    return windows
 
 
 def dedicated_key():
@@ -306,7 +341,7 @@ class VibeProfile(ProviderProfile):
             items = data.get('data') if isinstance(data, dict) else None
             if not isinstance(items, list):
                 return None
-            models = []
+            models, window_rows = [], []
             for item in items:
                 if not isinstance(item, dict):
                     return None
@@ -319,15 +354,44 @@ class VibeProfile(ProviderProfile):
                     return None
                 if capabilities['completion_chat'] and model_id not in models:
                     models.append(model_id)
+                    window_rows.append((model_id, item.get('max_context_length'), item.get('aliases')))
             if not models:
                 return None
-            _store_catalog(key, models)
+            _store_catalog(key, models, _context_windows(window_rows))
             return models
         except (httpx.HTTPError, ValueError, TypeError):
             return None
 
+    def live_context_length(self, model, *, api_key='', base_url=''):
+        """Context window of *model* from the dedicated key's catalog.
+
+        Reads ``max_context_length`` (and aliases) from the same ``/models``
+        response as ``fetch_models``, so it shares its origin pinning, its
+        dedicated-key rule (the ``api_key`` Hermes passes in is ignored) and its
+        cache. Fail-closed: any miss returns None and Hermes keeps resolving the
+        window its own way (models.dev, built-in table, 256K fallback).
+        """
+        if base_url and str(base_url).rstrip('/') != BASE:
+            return None
+        key = dedicated_key()
+        if not key or not isinstance(model, str):
+            return None
+        if _cached_contexts(key) is None and self.fetch_models(base_url=BASE) is None:
+            return None
+        return (_cached_contexts(key) or {}).get(model.strip())
+
     def create_client(self, **kwargs):
         return GuardedClient(**kwargs)
+
+
+def _metadata_hosts():
+    # Metadata-only claim (never wire routing): Mistral's host also takes ordinary
+    # MISTRAL_API_KEY credentials. Without it Hermes treats api.mistral.ai as an
+    # unknown custom endpoint and never asks live_context_length. Older Hermes
+    # versions without the field simply keep their previous behaviour.
+    import dataclasses
+    names = {field.name for field in dataclasses.fields(ProviderProfile)}
+    return {'metadata_hostnames': ('api.mistral.ai',)} if 'metadata_hostnames' in names else {}
 
 
 profile = VibeProfile(
@@ -336,5 +400,5 @@ profile = VibeProfile(
     auth_type='api_key', auth_handler=auth_handler, env_vars=('MISTRAL_VIBE_API_KEY',),
     base_url=BASE, fallback_models=(MODEL,), default_aux_model=MODEL,
     supports_health_check=False, supports_model_listing=True,
-    default_headers={'User-Agent': UA},
+    default_headers={'User-Agent': UA}, **_metadata_hosts(),
 )

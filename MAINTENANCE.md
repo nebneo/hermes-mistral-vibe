@@ -54,3 +54,12 @@
   exprimer `medium` sur `none/high` (l'unique niveau non-nul serait une
   escalade). Une activation future ne peut venir que d'un effort configuré
   `high` ou `none` explicitement.
+- La fenêtre de contexte vient du même `/models` (`max_context_length`, alias
+  compris ; un alias revendiqué avec deux fenêtres différentes est ignoré, un
+  vrai identifiant gagne toujours sur un alias). Hermes ne consulte
+  `live_context_length` que si le profil déclare l'hôte avec
+  `metadata_hostnames=('api.mistral.ai',)` : sans cela `api.mistral.ai` est un
+  endpoint custom (sonde générique, repli à 256K). Une installation réelle
+  masque ce défaut, car la table d'URL de Hermes dépend de l'ordre de
+  découverte des plugins : le vérifier dans un HOME synthétique, et jamais
+  seulement en appelant le crochet directement.
