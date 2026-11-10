@@ -23,13 +23,25 @@ _VIBE_GLM_52_EFFORTS = ('low', 'medium', 'high', 'max')
 _GLM_5_3_TOKENS = ('glm-5.3', 'glm-5-3', 'glm-5p3')
 _GLM_5_2_TOKENS = ('glm-5.2', 'glm-5-2', 'glm-5p2')
 _GLM_XHIGH_TO_MAX = {'xhigh': 'max'}  # vendor top-tier mapping, mirrors GLM53_OVERRIDES
+# Live-verified on the relay 2026-11-10 (one zero-generation 400 probe per family,
+# then one acceptance call per level): mistral-large-4 and mistral-large-4-0
+# accept exactly low/medium/high (server default is high); none/minimal/xhigh/
+# max 400 with the supported set listed in the body, so 'none' cannot disable
+# thinking there. mistral-large-latest, mistral-large-2512, codestral, ministral
+# and voxtral reject the field entirely ("not enabled"). The none/high-only
+# families (mistral-medium*, magistral-*, mistral-small*, mistral-vibe-cli-*)
+# stay fail-closed by design: the never-escalate clamp cannot express 'medium'
+# on a none/high wire without escalating to 'high' (see MAINTENANCE.md).
+_VIBE_LARGE4_EFFORTS = ('low', 'medium', 'high')
+_VIBE_LARGE4_TOKENS = ('mistral-large-4',)  # also matches mistral-large-4-0
 
 
-def _glm_effort_set(model):
+def _relay_effort_set(model):
     """Relay-verified ``reasoning_effort`` vocabulary for *model*, or None.
 
-    Fail-closed: any model whose GLM version was not verified on the relay
-    returns None and keeps the relay's own default effort.
+    Fail-closed: any model whose family was not verified on the relay returns
+    None and keeps the relay's own default effort. GLM families and the
+    Mistral large/medium/magistral/small/vibe-cli families are disjoint.
     """
     name = (model or '').strip().lower()
     if any(token in name for token in _GLM_5_3_TOKENS):
@@ -41,6 +53,8 @@ def _glm_effort_set(model):
         # Future 5.x point releases land here too — if the relay ever 400s the
         # level, Hermes' session-sticky rejection ladder drops the field.
         return _VIBE_GLM_EFFORTS
+    if any(token in name for token in _VIBE_LARGE4_TOKENS):
+        return _VIBE_LARGE4_EFFORTS
     return None
 
 
@@ -260,7 +274,7 @@ class VibeProfile(ProviderProfile):
         unverified model keeps the relay's own default effort (fail-closed).
         """
         extra_body, top_level = {}, {}
-        efforts = _glm_effort_set(model)
+        efforts = _relay_effort_set(model)
         if efforts is None:
             return extra_body, top_level
         effort = re_.requested_effort(reasoning_config)

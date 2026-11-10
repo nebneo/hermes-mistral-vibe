@@ -72,6 +72,45 @@ class ReasoningExtrasTests(unittest.TestCase):
                     reasoning_config={'enabled': True, 'effort': 'medium'}, model=model)
                 self.assertEqual(top_level, {'reasoning_effort': 'low'})
 
+    def test_large4_accepts_low_medium_high_verbatim(self):
+        """Relay-verified 2026-11-10: mistral-large-4/-4-0 take low/medium/high."""
+        for model in ('mistral-large-4', 'mistral-large-4-0'):
+            for effort in ('low', 'medium', 'high'):
+                with self.subTest(model=model, effort=effort):
+                    _, top_level = profile.build_api_kwargs_extras(
+                        reasoning_config={'enabled': True, 'effort': effort}, model=model)
+                    self.assertEqual(top_level, {'reasoning_effort': effort})
+
+    def test_large4_clamps_unsupported_levels_downward(self):
+        # max/xhigh -> high (nearest weaker), minimal -> low, ultra -> high;
+        # the clamp never escalates and 'none' emits nothing (400 on this wire).
+        cases = [('max', 'high'), ('xhigh', 'high'), ('minimal', 'low'),
+                 ('ultra', 'high'), ('none', None)]
+        for requested, expected in cases:
+            with self.subTest(requested=requested):
+                _, top_level = profile.build_api_kwargs_extras(
+                    reasoning_config={'enabled': True, 'effort': requested},
+                    model='mistral-large-4')
+                if expected is None:
+                    self.assertEqual(top_level, {})
+                else:
+                    self.assertEqual(top_level, {'reasoning_effort': expected})
+
+    def test_large4_disabled_or_unset_emits_nothing(self):
+        for config in ({'enabled': False, 'effort': 'high'}, None,
+                       {'enabled': True, 'effort': ''}):
+            with self.subTest(config=config):
+                self.assertEqual(profile.build_api_kwargs_extras(
+                    reasoning_config=config, model='mistral-large-4'), ({}, {}))
+
+    def test_large_latest_stays_fail_closed(self):
+        # Live 2026-11-10: mistral-large-latest rejects the field entirely
+        # ("reasoning_effort is not enabled"), unlike large-4.
+        for model in ('mistral-large-latest', 'mistral-large-2512'):
+            with self.subTest(model=model):
+                self.assertEqual(profile.build_api_kwargs_extras(
+                    reasoning_config={'enabled': True, 'effort': 'medium'}, model=model), ({}, {}))
+
 
 class ReasoningWireTests(unittest.TestCase):
     """The full request path: transport kwargs and the guarded client's wire body."""

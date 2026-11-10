@@ -39,6 +39,13 @@
   un niveau, l'échelle de rejet session-sticky de Hermes laisse tomber le champ ;
   re-vérifier les ensembles avec un seul appel d'acceptation par forme avant
   toute mise à jour.
+- Ajout live 2026-11-10 : `mistral-large-4` / `mistral-large-4-0` acceptent
+  exactement `low`/`medium`/`high` (défaut serveur `high`) ; `none`/`minimal`/
+  `xhigh`/`max` renvoient 400 avec l'ensemble listé dans le corps. Le clamp
+  never-escalate ramène donc `max`/`xhigh`/`ultra` → `high`, `minimal` → `low`,
+  et `none` émet zéro champ. `mistral-large-latest` et `mistral-large-2512`
+  rejettent le champ entièrement (« reasoning_effort is not enabled ») : ils
+  restent fail-closed, ne pas les ajouter aux tokens large-4.
 - Panorama non-GLM vérifié live (2026-10-03, sondage 400 zéro-génération) :
   Codestral/Ministral/Large/Voxtral → « reasoning_effort is not enabled » (ne
   jamais leur envoyer le champ) ; Mistral-medium (toutes variantes), Magistral,
