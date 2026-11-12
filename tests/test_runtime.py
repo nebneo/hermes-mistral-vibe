@@ -58,3 +58,17 @@ class RuntimeTests(unittest.TestCase):
                 return [part.choices[0].delta.content async for part in stream]
             self.assertEqual(asyncio.run(request()), ['ok'])
             client.close()
+
+class FallbackBindingTests(unittest.TestCase):
+    def test_guarded_client_exposes_attributes_hermes_reads_on_fallback(self):
+        from types import SimpleNamespace
+        from agent.client_lifecycle import _swap_fallback_clients
+        from vibe_provider import GuardedClient
+        client = GuardedClient(base_url=BASE)
+        self.assertEqual(client.base_url, BASE)
+        self.assertEqual(GuardedClient().base_url, BASE)
+        self.assertEqual(client.api_key, '')
+        agent = SimpleNamespace(model='x', _replace_primary_openai_client=lambda **k: None)
+        _swap_fallback_clients(agent, client, 'mistral-vibe', MODEL, BASE, 'chat_completions')
+        self.assertIs(agent.client, client)
+        self.assertEqual(agent._client_kwargs['base_url'], BASE)
