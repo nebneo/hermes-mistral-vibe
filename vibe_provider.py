@@ -200,6 +200,20 @@ class GuardedClient:
         self.kwargs = kwargs
         self.chat = SimpleNamespace(completions=self)
 
+    # Hermes reads these OpenAI-client attributes when it binds a fallback
+    # route (agent/route_binding.py, agent/client_lifecycle.py). Without them a
+    # fallback *to* mistral-vibe aborts half-way: the agent is already marked
+    # mistral-vibe but keeps the previous route's extra_body, and every retry
+    # fails with "Provider restricted to its fixed origin and request headers".
+    @property
+    def base_url(self):
+        return str(self.kwargs.get('base_url') or BASE)
+
+    @property
+    def api_key(self):
+        # Placeholder only: _create always re-reads the dedicated key.
+        return self.kwargs.get('api_key') or ''
+
     def create(self, **kwargs):
         import asyncio
         try:
