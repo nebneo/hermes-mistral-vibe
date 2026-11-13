@@ -54,3 +54,26 @@
   exprimer `medium` sur `none/high` (l'unique niveau non-nul serait une
   escalade). Une activation future ne peut venir que d'un effort configuré
   `high` ou `none` explicitement.
+- La fenêtre de contexte vient du même `/models` (`max_context_length`, alias
+  compris ; un alias revendiqué avec deux fenêtres différentes est ignoré, un
+  vrai identifiant gagne toujours sur un alias). Hermes ne consulte
+  `live_context_length` que si le profil déclare l'hôte avec
+  `metadata_hostnames=('api.mistral.ai',)` : sans cela `api.mistral.ai` est un
+  endpoint custom (sonde générique, repli à 256K). Une installation réelle
+  masque ce défaut, car la table d'URL de Hermes dépend de l'ordre de
+  découverte des plugins : le vérifier dans un HOME synthétique, et jamais
+  seulement en appelant le crochet directement.
+- Un modèle dont le vocabulaire d'effort est vérifié s'ajoute aussi à
+  `_REASONING_MODEL_IDS` (identifiants exacts : la recherche de Hermes ne
+  reconnaît ni alias ni préfixe). Un test échoue si un identifiant déclaré n'a pas
+  de vocabulaire vérifié, ou si un niveau proposé par l'étape d'effort de
+  `hermes model` n'est pas envoyé tel quel au relay.
+- La WebUI de Hermes ignore `setup_reasoning_efforts` : elle calcule ses niveaux
+  elle-même (config `providers.<slug>.models.<id>.reasoning_efforts`, puis
+  models.dev, puis une heuristique sur le nom). La déclaration `supports_reasoning`
+  y fait apparaître la puce avec l'échelle générique ; le plugin ramène toujours le
+  niveau choisi à un niveau accepté (clamp inchangé). Des niveaux exacts dans la
+  WebUI relèvent de la WebUI ou de la config de l'utilisateur.
+- Ne pas copier la fenêtre de contexte dans `model_capabilities` : elle vient du
+  catalogue (`live_context_length`) et un doublon se périmerait. Un test compare
+  la résolution du contexte hors catalogue avec et sans déclaration.
