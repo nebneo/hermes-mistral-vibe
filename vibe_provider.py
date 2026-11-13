@@ -59,6 +59,21 @@ def _relay_effort_set(model):
     return None
 
 
+# Models whose vocabulary above is relay-verified. Hermes cannot learn this for an
+# out-of-tree provider, so the profile declares it (see _hermes_profile_fields).
+# Exact ids: the lookup matches neither aliases nor prefixes. Every other model
+# stays undeclared and Hermes resolves it as before.
+_REASONING_MODEL_IDS = ('mistral-large-4', 'mistral-large-4-0', 'zai-glm-5-3',
+                        'zai-glm-5-3-flash', 'zai-glm-5', 'zai-glm-latest', 'zai-glm-5-2')
+
+
+def _setup_reasoning_efforts(model):
+    """Levels offered by the effort step of ``hermes model``: the wire vocabulary of
+    *model*, so a pick is never clamped afterwards. None keeps Hermes' own ladder
+    for a model that was not verified."""
+    return _relay_effort_set(model)
+
+
 def _key_fingerprint(key):
     import hashlib
     return hashlib.blake2b(key.encode(), digest_size=16).hexdigest()
@@ -384,14 +399,28 @@ class VibeProfile(ProviderProfile):
         return GuardedClient(**kwargs)
 
 
-def _metadata_hosts():
-    # Metadata-only claim (never wire routing): Mistral's host also takes ordinary
-    # MISTRAL_API_KEY credentials. Without it Hermes treats api.mistral.ai as an
-    # unknown custom endpoint and never asks live_context_length. Older Hermes
-    # versions without the field simply keep their previous behaviour.
+def _hermes_profile_fields(names=None):
+    """Optional ``ProviderProfile`` fields this plugin sets, limited to the ones the
+    installed Hermes has: an older Hermes rejects an unknown keyword and the plugin
+    would not load. Without a field the plugin keeps its previous behaviour.
+
+    - ``metadata_hostnames``: a metadata-only claim (never wire routing). Mistral's
+      host also takes ordinary MISTRAL_API_KEY credentials. Without it Hermes treats
+      api.mistral.ai as an unknown custom endpoint and never asks live_context_length.
+    - ``model_capabilities``: reasoning support of the verified models (the ``/model``
+      badge and the WebUI effort chip). Not the window: it comes from the catalog, and
+      a copy here would go stale.
+    - ``setup_reasoning_efforts``: the levels the ``hermes model`` effort step offers.
+    """
     import dataclasses
-    names = {field.name for field in dataclasses.fields(ProviderProfile)}
-    return {'metadata_hostnames': ('api.mistral.ai',)} if 'metadata_hostnames' in names else {}
+    if names is None:
+        names = {field.name for field in dataclasses.fields(ProviderProfile)}
+    wanted = {
+        'metadata_hostnames': ('api.mistral.ai',),
+        'model_capabilities': {model: {'supports_reasoning': True} for model in _REASONING_MODEL_IDS},
+        'setup_reasoning_efforts': _setup_reasoning_efforts,
+    }
+    return {key: value for key, value in wanted.items() if key in names}
 
 
 profile = VibeProfile(
@@ -400,5 +429,5 @@ profile = VibeProfile(
     auth_type='api_key', auth_handler=auth_handler, env_vars=('MISTRAL_VIBE_API_KEY',),
     base_url=BASE, fallback_models=(MODEL,), default_aux_model=MODEL,
     supports_health_check=False, supports_model_listing=True,
-    default_headers={'User-Agent': UA}, **_metadata_hosts(),
+    default_headers={'User-Agent': UA}, **_hermes_profile_fields(),
 )

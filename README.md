@@ -66,6 +66,11 @@ Les sections suivantes détaillent chaque étape et les options.
 - **fenêtre de contexte** : `max_context_length` du même catalogue (alias compris)
   alimente le crochet `live_context_length` de Hermes, sans réglage ; en cas
   d'échec ou de modèle absent, Hermes garde sa résolution habituelle (fail-closed) ;
+- **déclarations pour Hermes** : `model_capabilities` (le raisonnement des modèles
+  vérifiés : badge de `/model`, puce d'effort de la WebUI) et
+  `setup_reasoning_efforts` (les niveaux de l'étape d'effort de `hermes model`,
+  ceux que le relay accepte) ; chaque champ n'est passé que si le Hermes installé
+  le connaît ;
 - **effort de raisonnement (reasoning effort)** : le champ `reasoning_effort`
   top-level du relay est émis pour les modèles vérifiés
   (`zai-glm-5-3`/`zai-glm-5`/`zai-glm-latest` : `low`/`high`/`max` ;
