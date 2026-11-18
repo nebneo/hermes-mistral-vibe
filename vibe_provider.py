@@ -35,6 +35,22 @@ _GLM_XHIGH_TO_MAX = {'xhigh': 'max'}  # vendor top-tier mapping, mirrors GLM53_O
 _VIBE_LARGE4_EFFORTS = ('low', 'medium', 'high')
 _VIBE_LARGE4_TOKENS = ('mistral-large-4',)  # also matches mistral-large-4-0
 
+# Live-probed on the relay 2026-11-18: 'high' accepted, low/medium/max rejected with
+# code 3051 listing exactly ['high']. The relay default for these families is NO
+# thinking, so an omitted field means an empty reasoning box for every UI pick.
+_VIBE_HIGH_ONLY_EFFORTS = ('high',)
+_VIBE_HIGH_ONLY_TOKENS = (
+    'mistral-medium-3', 'mistral-medium-latest', 'mistral-medium-2604',
+    'mistral-small-latest', 'mistral-small-2603',
+    'magistral-medium-latest', 'magistral-small-latest',
+    'mistral-vibe-cli',
+)
+
+# Live-probed 2026-11-18: deepseek-v4.1-flash accepts none/low/high/max (medium 400s).
+_VIBE_DEEPSEEK_EFFORTS = ('low', 'high', 'max')
+_VIBE_DEEPSEEK_TOKENS = ('deepseek-v4', 'deepseek-ai/deepseek-v4')
+
+
 
 def _relay_effort_set(model):
     """Relay-verified ``reasoning_effort`` vocabulary for *model*, or None.
@@ -55,6 +71,15 @@ def _relay_effort_set(model):
         return _VIBE_GLM_EFFORTS
     if any(token in name for token in _VIBE_LARGE4_TOKENS):
         return _VIBE_LARGE4_EFFORTS
+    # Live-probed on the relay 2026-11-18 (one zero-generation 400 per level): these
+    # families accept ONLY 'high' and reject low/medium/max with code 3051. Without a
+    # declared set the old code failed closed and sent nothing, so the relay default
+    # (no thinking at all on mistral-medium-3) applied and the reasoning box stayed
+    # empty for every UI effort pick.
+    if any(token in name for token in _VIBE_HIGH_ONLY_TOKENS):
+        return _VIBE_HIGH_ONLY_EFFORTS
+    if any(token in name for token in _VIBE_DEEPSEEK_TOKENS):
+        return _VIBE_DEEPSEEK_EFFORTS
     return None
 
 

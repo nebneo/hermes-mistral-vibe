@@ -59,11 +59,49 @@ class ReasoningExtrasTests(unittest.TestCase):
                     reasoning_config=config, model='zai-glm-5-3'), ({}, {}))
 
     def test_only_verified_glm_models_emit(self):
-        """Fail-closed: non-GLM and unverified GLM versions keep the relay default."""
-        for model in (MODEL, 'mistral-medium-latest', 'zai-glm-6', 'zai-glm-4-5', 'some-model'):
+        """Fail-closed for UNPROBED models; probed families now declare a set.
+
+        'mistral-medium-latest' used to sit here, but it was probed on the relay
+        2026-11-18 and takes 'high' (low/medium/max 400 with code 3051). Unprobed
+        families and unknown GLM versions still keep the relay default.
+        """
+        for model in ('zai-glm-6', 'zai-glm-4-5', 'some-model', 'codestral-latest'):
             with self.subTest(model=model):
                 self.assertEqual(profile.build_api_kwargs_extras(
                     reasoning_config={'enabled': True, 'effort': 'medium'}, model=model), ({}, {}))
+
+    def test_high_only_families_emit_high_and_never_escalate(self):
+        """Live-probed 2026-11-18: these take ONLY 'high'; everything else 400s.
+
+        Omitting the field here is what made the reasoning box empty: the relay
+        default for mistral-medium-3 is no thinking at all.
+        """
+        for model in ('mistral-medium-3', 'mistral-medium-latest', 'mistral-small-latest',
+                      'magistral-medium-latest', 'mistral-vibe-cli-latest'):
+            for effort in ('low', 'medium', 'high', 'max', 'xhigh'):
+                with self.subTest(model=model, effort=effort):
+                    _, top_level = profile.build_api_kwargs_extras(
+                        reasoning_config={'enabled': True, 'effort': effort}, model=model)
+                    self.assertEqual(top_level, {'reasoning_effort': 'high'})
+
+    def test_high_only_families_emit_nothing_when_disabled(self):
+        for model in ('mistral-medium-3', 'mistral-small-latest'):
+            for config in ({'enabled': False, 'effort': 'high'}, None,
+                           {'enabled': True, 'effort': 'none'}):
+                with self.subTest(model=model, config=config):
+                    self.assertEqual(profile.build_api_kwargs_extras(
+                        reasoning_config=config, model=model), ({}, {}))
+
+    def test_deepseek_v4_flash_accepts_low_high_max(self):
+        """Live-probed 2026-11-18: medium 400s on this wire; the rest pass."""
+        cases = [('low', 'low'), ('high', 'high'), ('max', 'max'), ('medium', 'low')]
+        for requested, expected in cases:
+            with self.subTest(requested=requested):
+                _, top_level = profile.build_api_kwargs_extras(
+                    reasoning_config={'enabled': True, 'effort': requested},
+                    model='deepseek-v4-1-flash-1017')
+                self.assertEqual(top_level, {'reasoning_effort': expected})
+
 
     def test_glm_5_and_latest_share_the_5_3_vocabulary(self):
         for model in ('zai-glm-5', 'zai-glm-latest', 'zai-glm-5-3-900k'):
