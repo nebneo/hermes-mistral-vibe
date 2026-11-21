@@ -190,6 +190,19 @@ def auth_handler(action, args):
     return False
 
 
+class _StreamResult:
+    """Stream=True inside a running loop: Hermes relay ``iter()``s it, aux code ``await``s it."""
+    def __init__(self, client, kwargs):
+        self._client, self._kwargs = client, kwargs
+
+    def __iter__(self):
+        # ponytail: initial open blocks the loop until headers arrive; relay off-loads chunk reads only.
+        return iter(self._client._create(**self._kwargs))
+
+    def __await__(self):
+        return self._client._async_create(**self._kwargs).__await__()
+
+
 class GuardedClient:
     """Validation is deferred: Hermes swallows create_client hook exceptions."""
     # Preserve this guard instead of rebuilding an unguarded AsyncOpenAI client.
@@ -206,6 +219,8 @@ class GuardedClient:
             asyncio.get_running_loop()
         except RuntimeError:
             return self._create(**kwargs)
+        if kwargs.get('stream'):
+            return _StreamResult(self, kwargs)
         return self._async_create(**kwargs)
 
     async def _async_create(self, **kwargs):
