@@ -326,8 +326,46 @@ class VibeProfile(ProviderProfile):
         except (httpx.HTTPError, ValueError, TypeError):
             return None
 
+    def fetch_account_usage(self, *, base_url=None, api_key=None):
+        # Read-only, spends no tokens. Stay on /v1/billing/budget: the console
+        # billing.vibeUsage and admin.mistral.ai endpoints need a browser session
+        # cookie and reject API keys with 401.
+        import httpx
+        from agent.account_usage import AccountUsageSnapshot
+        from datetime import datetime, UTC
+        if str(base_url or BASE).rstrip('/') != BASE:
+            return None
+        key = api_key or dedicated_key()
+        if not key:
+            return None
+        with httpx.Client(transport=httpx.HTTPTransport(), follow_redirects=False,
+                trust_env=False, timeout=8, headers={'Authorization':'Bearer ' + key,
+                'Accept':'application/json', 'User-Agent':UA}) as http:
+            response = http.get(BASE + '/billing/budget')
+            response.raise_for_status()
+            windows = _budget_windows(response.json())
+        if not windows:
+            return None
+        return AccountUsageSnapshot(provider=SLUG, source='mistral-billing-budget',
+            fetched_at=datetime.now(UTC), title='Mistral Vibe usage', windows=tuple(windows))
+
     def create_client(self, **kwargs):
         return GuardedClient(**kwargs)
+
+
+def _budget_windows(data):
+    """Map billing/budget JSON to usage windows; malformed budgets are skipped."""
+    from datetime import datetime
+    from agent.account_usage import AccountUsageWindow
+    windows = []
+    for label, field in (('Vibe monthly', 'vibe_budget'), ('API monthly', 'api_budget')):
+        budget = data.get(field) if isinstance(data, dict) else None
+        if not isinstance(budget, dict) or not isinstance(budget.get('usage_percentage'), (int, float)):
+            continue
+        reset = str(budget.get('reset_at') or '').replace('Z', '+00:00')
+        windows.append(AccountUsageWindow(label=label, used_percent=float(budget['usage_percentage']),
+            reset_at=datetime.fromisoformat(reset) if reset else None))
+    return windows
 
 
 profile = VibeProfile(

@@ -165,6 +165,13 @@ La sélection du fournisseur/modèle reste une action volontaire de l’utilisat
 par exemple via `hermes model`. Ce dépôt et son installateur ne modifient pas
 `config.yaml`.
 
+## Suivi de l’usage
+
+La commande `/usage` affiche le budget mensuel Vibe et le budget API (pourcentage
+utilisé et date de réinitialisation), lus via `GET https://api.mistral.ai/v1/billing/budget`
+avec la clé Vibe. Lecture seule, aucun token consommé. Les points de terminaison de la
+console (`billing.vibeUsage`) ne sont pas utilisés : ils exigent une session de navigateur.
+
 ## Tests hors ligne
 
 ```sh
