@@ -34,6 +34,14 @@ CATALOG = {'data':[
 
 class ContextWindowTests(unittest.TestCase):
     def setUp(self):
+        # Hermes resolves providers against the home it is bound to, and a plugin installed
+        # in that home shadows the profile registered here. An empty home makes the tests
+        # the same on a machine that has the plugin installed and in run_tests.py.
+        isolated = tempfile.TemporaryDirectory()
+        self.addCleanup(isolated.cleanup)
+        patcher = patch.dict(os.environ, {'HERMES_HOME':isolated.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         vp._catalog_cache.clear()
         vp._context_cache.clear()
 

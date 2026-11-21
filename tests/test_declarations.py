@@ -26,6 +26,15 @@ def bare_profile():
 
 
 class DeclarationTests(unittest.TestCase):
+    def setUp(self):
+        # Same reason as ContextWindowTests.setUp: an installed copy of the plugin in the
+        # bound home would shadow the profile these tests register.
+        isolated = tempfile.TemporaryDirectory()
+        self.addCleanup(isolated.cleanup)
+        patcher = patch.dict(os.environ, {'HERMES_HOME': isolated.name})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_only_relay_verified_models_are_declared_as_reasoning_capable(self):
         capabilities = vp.profile.model_capabilities
         self.assertEqual(set(capabilities), set(VERIFIED))
