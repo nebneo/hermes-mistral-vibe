@@ -190,6 +190,40 @@ def auth_handler(action, args):
     return False
 
 
+def _affinity_id(messages):
+    """Stable per-conversation id: hash of the first system and first user message."""
+    import hashlib, json
+    if not isinstance(messages, list):
+        return None
+    first = {}
+    for m in messages:
+        role = m.get('role') if isinstance(m, dict) else None
+        if role in ('system', 'user') and role not in first:
+            first[role] = m.get('content')
+        if len(first) == 2:
+            break
+    if not first:
+        return None
+    raw = json.dumps(first, sort_keys=True, ensure_ascii=False, default=str)
+    return 'hermes-' + hashlib.sha256(raw.encode('utf-8')).hexdigest()[:32]
+
+
+# Headers the plugin itself adds; the request guard lets exactly these through.
+_PLUGIN_HEADERS = frozenset({'x-affinity'})
+
+
+def _with_affinity(kwargs):
+    """Add the per-conversation ``x-affinity`` header, as the official Vibe client
+    does, merged into any headers already present (never replacing them)."""
+    affinity = _affinity_id(kwargs.get('messages'))
+    if affinity:
+        headers = {k: v for k, v in dict(kwargs.get('extra_headers') or {}).items()
+                   if str(k).lower() != 'x-affinity'}
+        headers['x-affinity'] = affinity
+        kwargs['extra_headers'] = headers
+    return kwargs
+
+
 class GuardedClient:
     """Validation is deferred: Hermes swallows create_client hook exceptions."""
     # Preserve this guard instead of rebuilding an unguarded AsyncOpenAI client.
@@ -199,6 +233,20 @@ class GuardedClient:
         from types import SimpleNamespace
         self.kwargs = kwargs
         self.chat = SimpleNamespace(completions=self)
+
+    # Hermes reads these OpenAI-client attributes when it binds a fallback
+    # route (agent/route_binding.py, agent/client_lifecycle.py). Without them a
+    # fallback *to* mistral-vibe aborts half-way: the agent is already marked
+    # mistral-vibe but keeps the previous route's extra_body, and every retry
+    # fails with "Provider restricted to its fixed origin and request headers".
+    @property
+    def base_url(self):
+        return str(self.kwargs.get('base_url') or BASE)
+
+    @property
+    def api_key(self):
+        # Placeholder only: _create always re-reads the dedicated key.
+        return self.kwargs.get('api_key') or ''
 
     def create(self, **kwargs):
         import asyncio
@@ -237,9 +285,17 @@ class GuardedClient:
             kwargs.pop('extra_body', None)
             if 'response_format' in body:
                 kwargs.setdefault('response_format', body['response_format'])
+        # The plugin authors x-affinity itself (any caller value is overwritten),
+        # then the guard runs: the only header allowed through is on the explicit
+        # allowlist, so nothing caller-controlled reaches the wire.
+        _with_affinity(kwargs)
+        extra_headers = kwargs.get('extra_headers') or {}
+        rejected = sorted(str(k) for k in extra_headers if str(k).lower() not in _PLUGIN_HEADERS)
         if (str(self.kwargs.get('base_url') or BASE).rstrip('/') != BASE
-                or any(kwargs.get(k) for k in ('extra_headers', 'extra_body', 'extra_query'))):
-            raise RuntimeError('Provider restricted to its fixed origin and request headers')
+                or rejected
+                or any(kwargs.get(k) for k in ('extra_body', 'extra_query'))):
+            detail = f" (rejected headers: {', '.join(rejected)})" if rejected else ''
+            raise RuntimeError('Provider restricted to its fixed origin and request headers' + detail)
         key = dedicated_key()
         if not key:
             raise RuntimeError('Missing dedicated MISTRAL_VIBE_API_KEY; run hermes auth add mistral-vibe')

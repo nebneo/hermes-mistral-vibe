@@ -58,3 +58,63 @@ class RuntimeTests(unittest.TestCase):
                 return [part.choices[0].delta.content async for part in stream]
             self.assertEqual(asyncio.run(request()), ['ok'])
             client.close()
+
+class FallbackBindingTests(unittest.TestCase):
+    def test_guarded_client_exposes_attributes_hermes_reads_on_fallback(self):
+        from types import SimpleNamespace
+        from agent.client_lifecycle import _swap_fallback_clients
+        from vibe_provider import GuardedClient
+        client = GuardedClient(base_url=BASE)
+        self.assertEqual(client.base_url, BASE)
+        self.assertEqual(GuardedClient().base_url, BASE)
+        self.assertEqual(client.api_key, '')
+        agent = SimpleNamespace(model='x', _replace_primary_openai_client=lambda **k: None)
+        _swap_fallback_clients(agent, client, 'mistral-vibe', MODEL, BASE, 'chat_completions')
+        self.assertIs(agent.client, client)
+        self.assertEqual(agent._client_kwargs['base_url'], BASE)
+
+class AffinityTests(unittest.TestCase):
+    def test_affinity_is_stable_per_conversation_and_sent_as_header(self):
+        from vibe_provider import _affinity_id, GuardedClient
+        conv = [{'role': 'system', 'content': 'sys'}, {'role': 'user', 'content': 'task A'}]
+        later = conv + [{'role': 'assistant', 'content': 'x'}, {'role': 'user', 'content': 'more'}]
+        other = [{'role': 'system', 'content': 'sys'}, {'role': 'user', 'content': 'task B'}]
+        self.assertEqual(_affinity_id(conv), _affinity_id(later))
+        self.assertNotEqual(_affinity_id(conv), _affinity_id(other))
+        self.assertIsNone(_affinity_id(None))
+        seen = []
+        def fake(req):
+            seen.append(req.headers.get('x-affinity'))
+            return httpx.Response(200, json={'id':'f','object':'chat.completion','created':0,'model':MODEL,
+                'choices':[{'index':0,'message':{'role':'assistant','content':'ok'},'finish_reason':'stop'}],
+                'usage':{'prompt_tokens':1,'completion_tokens':1,'total_tokens':2}})
+        with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {'HERMES_HOME':home, 'MISTRAL_VIBE_API_KEY':'fake-key'}), patch('httpx.HTTPTransport', return_value=httpx.MockTransport(fake)):
+            GuardedClient(base_url=BASE).create(model=MODEL, messages=later)
+        self.assertEqual(seen, [_affinity_id(conv)])
+
+    def test_affinity_merges_with_existing_extra_headers(self):
+        from vibe_provider import _with_affinity, _affinity_id
+        msgs = [{'role': 'user', 'content': 'x'}]
+        kw = _with_affinity({'messages': msgs, 'extra_headers': {'traceparent': '00-abc-def-01', 'X-Affinity': 'stale'}})
+        self.assertEqual(kw['extra_headers'], {'traceparent': '00-abc-def-01', 'x-affinity': _affinity_id(msgs)})
+        self.assertNotIn('extra_headers', _with_affinity({'messages': None}))
+
+    def test_guard_allows_only_plugin_authored_affinity(self):
+        from vibe_provider import GuardedClient, _affinity_id
+        msgs = [{'role': 'user', 'content': 'x'}]
+        seen = []
+        def fake(req):
+            seen.append(req.headers.get('x-affinity'))
+            return httpx.Response(200, json={'id':'f','object':'chat.completion','created':0,'model':MODEL,
+                'choices':[{'index':0,'message':{'role':'assistant','content':'ok'},'finish_reason':'stop'}],
+                'usage':{'prompt_tokens':1,'completion_tokens':1,'total_tokens':2}})
+        with tempfile.TemporaryDirectory() as home, patch.dict(os.environ, {'HERMES_HOME':home, 'MISTRAL_VIBE_API_KEY':'fake-key'}), patch('httpx.HTTPTransport', return_value=httpx.MockTransport(fake)):
+            client = GuardedClient(base_url=BASE)
+            # A caller-supplied x-affinity is replaced by the plugin's own value.
+            client.create(model=MODEL, messages=msgs, extra_headers={'x-affinity': 'caller-chosen'})
+            self.assertEqual(seen, [_affinity_id(msgs)])
+            # Any other header is still rejected before any I/O, and named in the error.
+            with self.assertRaisesRegex(RuntimeError, 'rejected headers: traceparent'):
+                client.create(model=MODEL, messages=msgs, extra_headers={'traceparent': '00-a-b-01'})
+            self.assertEqual(len(seen), 1)
+
